@@ -668,6 +668,60 @@ class projectmanager_merge extends Api\Storage\Merge
 		// Project links - check content first, finding all the links is expensive
 		$replacements += $this->get_all_links('projectmanager', $project['pm_id'], $prefix, $content);
 
+		$replacements = $this->extra_replacements_e08($replacements);
+		return $replacements;
+	}
+
+	public function extra_replacements_e08($replacements) {
+		$db = clone($GLOBALS['egw']->db);
+
+		$pm_id = $replacements['$$pm_id$$'];
+		$pm_title = $replacements['$$pm_title$$'];
+
+		$timesheet_ids = $element_IDs = array();
+		$query = $db->query("SELECT * FROM egw_links WHERE link_id2 = '$pm_id' AND link_app1 = 'timesheet';")->GetAll();
+		if (!empty($query)) {
+			foreach ($query as $key => $value) {
+				$timesheet_ids[] = $value['link_id1'];
+				$element_IDs[$value['link_id1']] = $value['link_id'];
+			}
+		}
+		$query2 = $db->query("SELECT * FROM egw_links WHERE link_id1 = '$pm_id' AND link_app2 = 'timesheet';")->GetAll();
+		if (!empty($query2)) {
+			foreach ($query2 as $key => $value) {
+				$timesheet_ids[] = $value['link_id2'];
+				$element_IDs[$value['link_id2']] = $value['link_id'];
+			}
+		}
+
+		if (!empty($timesheet_ids)) {
+			$timesheet_ids = implode(",", $timesheet_ids);
+			$timesheets = $db->query("SELECT * FROM egw_timesheet WHERE ts_id IN($timesheet_ids) ORDER BY ts_start ASC;")->GetAll();
+			$status_data = json_decode($db->query("SELECT * FROM egw_config WHERE `config_name` LIKE 'status_labels';")->GetAll()[0]['config_value'], true);
+			foreach ($timesheets as $key => $timesheet) {
+				$owner_id = $timesheet['ts_owner'];
+				$owner_data = $db->query("SELECT * FROM egw_addressbook WHERE account_id = '$owner_id';")->GetAll()[0];
+				$resourcen = $owner_data['n_family'].", ".$owner_data['n_given']; // Nachname, Vorname
+				$position = $owner_data['contact_title']; // #position von benutzerdefiniertesfeld
+
+				$category = ($timesheet['cat_id'] ? $db->query("SELECT * FROM egw_categories WHERE cat_id = '$timesheet[cat_id]';")->GetAll()[0]['cat_name'] : "Keine");
+				$element_ID = $element_IDs[$timesheet['ts_id']]; // Link id between timesheet and projectmanager
+				$element_Titel = $timesheet['ts_title'];
+				$datum = date("d.m.Y", $timesheet['ts_start']);
+				$dauer = str_replace(".", ",", $timesheet['ts_duration'] / 60);
+
+				$status = $status_data[$timesheet['ts_status']]['name'];
+
+				$replacements['$$stundenzettel_export_1$$'] .= "\"$pm_title\";\"$pm_id\";\"$element_ID\";\"$element_Titel\";\"$datum\";\"$dauer\";\"$resourcen\";\"$status\";\"$position\";\"$category\";\n";
+			}
+		} else {
+			$replacements['$$stundenzettel_export_1$$'] = "";
+		}
+
+		// echo "<pre>";
+		// var_dump($replacements);
+		// echo "</pre>";
+		// exit;
 
 		return $replacements;
 	}
